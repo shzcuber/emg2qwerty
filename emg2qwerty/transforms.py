@@ -155,6 +155,91 @@ class TemporalAlignmentJitter:
 
 
 @dataclass
+class RandomGain:
+    """Applies random amplitude scaling (gain) to the signal. Helps the model
+    become invariant to session- and user-dependent EMG amplitude.
+
+    Args:
+        min_scale (float): Minimum scale factor (default: 0.8)
+        max_scale (float): Maximum scale factor (default: 1.2)
+    """
+
+    min_scale: float = 0.8
+    max_scale: float = 1.2
+
+    def __post_init__(self) -> None:
+        assert self.min_scale > 0 and self.max_scale >= self.min_scale
+
+    def __call__(self, tensor: torch.Tensor) -> torch.Tensor:
+        scale = float(np.random.uniform(self.min_scale, self.max_scale))
+        return tensor * scale
+
+
+@dataclass
+class GaussianNoise:
+    """Adds zero-mean Gaussian noise to the signal. Improves robustness
+    to sensor noise and reduces overfitting.
+
+    Args:
+        std (float): Standard deviation of the noise (default: 0.01).
+    """
+
+    std: float = 0.01
+
+    def __post_init__(self) -> None:
+        assert self.std >= 0.0
+
+    def __call__(self, tensor: torch.Tensor) -> torch.Tensor:
+        if self.std <= 0.0:
+            return tensor
+        noise = torch.randn_like(tensor, device=tensor.device, dtype=tensor.dtype)
+        return tensor + self.std * noise
+
+
+@dataclass
+class ChannelDropout:
+    """Randomly zeros out a subset of electrode channels.
+
+    Args:
+        max_drop (int): Maximum number of channels to drop per band (default: 2).
+        channel_dim (int): The electrode channel dimension (default: -1).
+        band_dim (int): The band (left/right) dimension for per-band dropout
+            (default: 1).
+    """
+
+    max_drop: int = 2
+    channel_dim: int = -1
+    band_dim: int = 1
+
+    def __post_init__(self) -> None:
+        assert self.max_drop >= 0
+
+    def __call__(self, tensor: torch.Tensor) -> torch.Tensor:
+        if self.max_drop <= 0:
+            return tensor
+        num_channels = tensor.shape[self.channel_dim]
+        num_bands = tensor.shape[self.band_dim]
+        if num_channels <= 0:
+            return tensor
+
+        # Build mask (1, num_bands, num_channels) for (T, band, channel)
+        mask = torch.ones(
+            num_bands, num_channels, device=tensor.device, dtype=tensor.dtype
+        )
+        for b in range(num_bands):
+            n_drop = min(
+                int(np.random.randint(0, self.max_drop + 1)),
+                num_channels,
+            )
+            if n_drop > 0:
+                drop_idx = torch.randperm(num_channels, device=tensor.device)[:n_drop]
+                mask[b, drop_idx] = 0
+        # Broadcast: (1, 2, 16) over (T, 2, 16)
+        mask = mask.unsqueeze(0)
+        return tensor * mask
+
+
+@dataclass
 class LogSpectrogram:
     """Creates log10-scaled spectrogram from an EMG signal. In the case of
     multi-channeled signal, the channels are treated independently.

@@ -3,6 +3,19 @@ to_tensor:
   _target_: emg2qwerty.transforms.ToTensor
   fields: [emg_left, emg_right]
 
+random_gain:
+  _target_: emg2qwerty.transforms.RandomGain
+  min_scale: 0.8
+  max_scale: 1.2
+
+gaussian_noise:
+  _target_: emg2qwerty.transforms.GaussianNoise
+  std: 0.01
+
+channel_dropout:
+  _target_: emg2qwerty.transforms.ChannelDropout
+  max_drop: 2
+
 band_rotation:
   _target_: emg2qwerty.transforms.ForEach  # i.i.d rotation offset for each band
   transform:
@@ -28,6 +41,9 @@ specaug:
 transforms:
   train:
     - ${to_tensor}
+    - ${random_gain}
+    - ${gaussian_noise}
+    - ${channel_dropout}
     - ${band_rotation}
     - ${temporal_jitter}
     - ${logspec}
