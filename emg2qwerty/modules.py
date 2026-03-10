@@ -5,6 +5,7 @@
 # LICENSE file in the root directory of this source tree.
 
 from collections.abc import Sequence
+import math
 
 import torch
 from torch import nn
@@ -278,3 +279,118 @@ class TDSConvEncoder(nn.Module):
 
     def forward(self, inputs: torch.Tensor) -> torch.Tensor:
         return self.tds_conv_blocks(inputs)  # (T, N, num_features)
+
+
+class PositionalEncoding(nn.Module):
+    """Sinusoidal positional encoding for time-first tensors.
+
+    Expects inputs of shape (T, N, d_model) and returns tensors of the same
+    shape with positional encodings added along the feature dimension.
+    """
+
+    def __init__(
+        self,
+        d_model: int,
+        dropout: float = 0.1,
+        max_len: int = 5000,
+    ) -> None:
+        super().__init__()
+        self.dropout = nn.Dropout(p=dropout)
+
+        pe = torch.zeros(max_len, d_model)
+        position = torch.arange(0, max_len).unsqueeze(1)
+        div_term = torch.exp(
+            torch.arange(0, d_model, 2) * (-math.log(10000.0) / d_model)
+        )
+        pe[:, 0::2] = torch.sin(position * div_term)
+        pe[:, 1::2] = torch.cos(position * div_term)
+        pe = pe.unsqueeze(1)  # (max_len, 1, d_model)
+        self.register_buffer("pe", pe)
+
+    def forward(self, inputs: torch.Tensor) -> torch.Tensor:
+        T = inputs.size(0)
+        x = inputs + self.pe[:T]
+        return self.dropout(x)
+
+
+class TransformerEncoder(nn.Module):
+    """A transformer encoder operating on time-first sequences.
+
+    Args:
+        num_features (int): ``num_features`` for an input of shape
+            (T, N, num_features).
+        d_model (int): Dimensionality of the transformer embeddings.
+        nhead (int): Number of attention heads.
+        num_layers (int): Number of transformer encoder layers.
+        dim_feedforward (int): Dimensionality of the feedforward network.
+        dropout (float): Dropout probability.
+        max_len (int): Maximum supported sequence length for positional
+            encodings. (default: 5000)
+    """
+
+    def __init__(
+        self,
+        num_features: int,
+        d_model: int,
+        nhead: int,
+        num_layers: int,
+        dim_feedforward: int = 2048,
+        dropout: float = 0.1,
+        max_len: int = 5000,
+    ) -> None:
+        super().__init__()
+
+        if d_model != num_features:
+            self.input_proj: nn.Module = nn.Linear(num_features, d_model)
+        else:
+            self.input_proj = nn.Identity()
+
+        self.pos_encoder = PositionalEncoding(
+            d_model=d_model,
+            dropout=dropout,
+            max_len=max_len,
+        )
+
+        encoder_layer = nn.TransformerEncoderLayer(
+            d_model=d_model,
+            nhead=nhead,
+            dim_feedforward=dim_feedforward,
+            dropout=dropout,
+            batch_first=False,
+        )
+        self.transformer_encoder = nn.TransformerEncoder(
+            encoder_layer,
+            num_layers=num_layers,
+        )
+
+    def forward(
+        self,
+        inputs: torch.Tensor,
+        input_lengths: torch.Tensor | None = None,
+    ) -> torch.Tensor:
+        """Encode an input sequence.
+
+        Args:
+            inputs (Tensor): Input tensor of shape (T, N, num_features).
+            input_lengths (Tensor, optional): Lengths of each sequence in the
+                batch before padding, of shape (N,). If provided, this is used
+            to construct an attention key padding mask so that padded
+                positions are ignored by self-attention. (default: ``None``)
+
+        Returns:
+            Tensor: Encoded tensor of shape (T, N, d_model).
+        """
+        # (T, N, num_features) -> (T, N, d_model)
+        x = self.input_proj(inputs)
+        x = self.pos_encoder(x)
+
+        key_padding_mask = None
+        if input_lengths is not None:
+            T, N, _ = x.shape
+            device = x.device
+            lengths = input_lengths.to(device)
+            positions = torch.arange(T, device=device).unsqueeze(0)  # (1, T)
+            key_padding_mask = positions >= lengths.unsqueeze(1)  # (N, T)
+
+        # (T, N, d_model)
+        return self.transformer_encoder(x, src_key_padding_mask=key_padding_mask)
