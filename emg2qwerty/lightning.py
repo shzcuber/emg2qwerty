@@ -43,6 +43,8 @@ class WindowedEMGDataModule(pl.LightningDataModule):
         train_transform: Transform[np.ndarray, torch.Tensor],
         val_transform: Transform[np.ndarray, torch.Tensor],
         test_transform: Transform[np.ndarray, torch.Tensor],
+        test_window_length: int | None = None,
+        test_padding: tuple[int, int] | None = None,
     ) -> None:
         super().__init__()
 
@@ -59,6 +61,11 @@ class WindowedEMGDataModule(pl.LightningDataModule):
         self.train_transform = train_transform
         self.val_transform = val_transform
         self.test_transform = test_transform
+
+        # When set, test uses windowed segments (e.g. for transformer OOM avoidance).
+        # When None, test uses full sessions (window_length=None).
+        self.test_window_length = test_window_length
+        self.test_padding = test_padding if test_padding is not None else padding
 
     def setup(self, stage: str | None = None) -> None:
         self.train_dataset = ConcatDataset(
@@ -85,15 +92,15 @@ class WindowedEMGDataModule(pl.LightningDataModule):
                 for hdf5_path in self.val_sessions
             ]
         )
+        test_window = self.test_window_length
+        test_pad = (0, 0) if test_window is None else self.test_padding
         self.test_dataset = ConcatDataset(
             [
                 WindowedEMGDataset(
                     hdf5_path,
                     transform=self.test_transform,
-                    # Feed the entire session at once without windowing/padding
-                    # at test time for more realism
-                    window_length=None,
-                    padding=(0, 0),
+                    window_length=test_window if test_window is not None else None,
+                    padding=test_pad,
                     jitter=False,
                 )
                 for hdf5_path in self.test_sessions

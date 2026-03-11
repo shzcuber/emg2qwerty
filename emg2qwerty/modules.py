@@ -286,6 +286,8 @@ class PositionalEncoding(nn.Module):
 
     Expects inputs of shape (T, N, d_model) and returns tensors of the same
     shape with positional encodings added along the feature dimension.
+    Supports arbitrary T; when T > max_len, encoding is computed on the fly
+    so long sequences (e.g. full sessions at test time) are handled.
     """
 
     def __init__(
@@ -295,6 +297,8 @@ class PositionalEncoding(nn.Module):
         max_len: int = 5000,
     ) -> None:
         super().__init__()
+        self.d_model = d_model
+        self.max_len = max_len
         self.dropout = nn.Dropout(p=dropout)
 
         pe = torch.zeros(max_len, d_model)
@@ -307,9 +311,25 @@ class PositionalEncoding(nn.Module):
         pe = pe.unsqueeze(1)  # (max_len, 1, d_model)
         self.register_buffer("pe", pe)
 
+    def _pe_for_length(self, T: int, device: torch.device) -> torch.Tensor:
+        """Compute sinusoidal positional encoding for length T (T, 1, d_model)."""
+        pe = torch.zeros(T, self.d_model, device=device)
+        position = torch.arange(0, T, device=device).unsqueeze(1)
+        div_term = torch.exp(
+            torch.arange(0, self.d_model, 2, device=device)
+            * (-math.log(10000.0) / self.d_model)
+        )
+        pe[:, 0::2] = torch.sin(position * div_term)
+        pe[:, 1::2] = torch.cos(position * div_term)
+        return pe.unsqueeze(1)  # (T, 1, d_model)
+
     def forward(self, inputs: torch.Tensor) -> torch.Tensor:
         T = inputs.size(0)
-        x = inputs + self.pe[:T]
+        if T <= self.pe.size(0):
+            pe = self.pe[:T]
+        else:
+            pe = self._pe_for_length(T, inputs.device)
+        x = inputs + pe
         return self.dropout(x)
 
 
