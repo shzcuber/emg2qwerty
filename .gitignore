@@ -53,3 +53,15 @@ bids_data
 
 # LM
 wikitext-103-raw*
+.venv/
+.venv311/
+venv/
+data/
+logs/
+checkpoints/
+*.ckpt
+*.hdf5
+*.tar.gz
+*.zip
+__pycache__/
+*.pyc

@@ -278,3 +278,43 @@ class TDSConvEncoder(nn.Module):
 
     def forward(self, inputs: torch.Tensor) -> torch.Tensor:
         return self.tds_conv_blocks(inputs)  # (T, N, num_features)
+
+class RNNEncoder(nn.Module):
+    """
+    Recurrent encoder for inputs of shape (T, N, num_features).
+    Returns emissions-ready features of shape (T, N, hidden_size * num_directions).
+    """
+
+    def __init__(
+        self,
+        input_size: int,
+        hidden_size: int = 256,
+        num_layers: int = 2,
+        dropout: float = 0.2,
+        bidirectional: bool = True,
+        rnn_type: str = "gru",
+    ) -> None:
+        super().__init__()
+
+        rnn_type = rnn_type.lower()
+        if rnn_type == "gru":
+            rnn_cls = nn.GRU
+        elif rnn_type == "lstm":
+            rnn_cls = nn.LSTM
+        else:
+            raise ValueError(f"Unsupported rnn_type: {rnn_type}")
+
+        self.rnn = rnn_cls(
+            input_size=input_size,
+            hidden_size=hidden_size,
+            num_layers=num_layers,
+            dropout=dropout if num_layers > 1 else 0.0,
+            bidirectional=bidirectional,
+        )
+
+        self.output_size = hidden_size * (2 if bidirectional else 1)
+
+    def forward(self, inputs: torch.Tensor) -> torch.Tensor:
+        # inputs: (T, N, C)
+        outputs, _ = self.rnn(inputs)
+        return outputs
