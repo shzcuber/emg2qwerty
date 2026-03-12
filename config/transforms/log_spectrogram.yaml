@@ -42,7 +42,7 @@ transforms:
   train:
     - ${to_tensor}
     # - ${random_gain}
-    # - ${gaussian_noise}
+    - ${gaussian_noise}
     # - ${channel_dropout}
     - ${band_rotation}
     - ${temporal_jitter}
