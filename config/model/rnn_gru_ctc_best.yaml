@@ -1,0 +1,12 @@
+# @package _global_
+
+defaults:
+  - rnn_gru_ctc
+
+module:
+  rnn_hidden_size: 512
+  rnn_num_layers: 3
+  rnn_dropout: 0.45
+
+optimizer:
+  lr: 0.0005
