@@ -21,10 +21,16 @@ trainer:
   devices: 1
   num_nodes: 1
   max_epochs: 300
+  min_epochs: 30
   default_root_dir: ${hydra:runtime.output_dir}
 
 callbacks:
   - _target_: pytorch_lightning.callbacks.LearningRateMonitor
+  - _target_: pytorch_lightning.callbacks.EarlyStopping
+    monitor: ${monitor_metric}
+    mode: ${monitor_mode}
+    patience: 20
+    min_delta: 0.1
   - _target_: pytorch_lightning.callbacks.ModelCheckpoint
     dirpath: ${hydra:runtime.output_dir}/checkpoints
     monitor: ${monitor_metric}

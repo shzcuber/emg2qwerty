@@ -5,7 +5,7 @@ defaults:
 
 module:
   rnn_hidden_size: 512
-  rnn_num_layers: 3
+  rnn_num_layers: 4
   rnn_dropout: 0.45
 
 optimizer:
