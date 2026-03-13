@@ -269,9 +269,8 @@ class TDSConvCTCModule(pl.LightningModule):
             optimizer_config=self.hparams.optimizer,
             lr_scheduler_config=self.hparams.lr_scheduler,
         )
-###################################################
+    
 #gru modudle 
-###################################################
 class GRUCTCModule(pl.LightningModule):
     NUM_BANDS: ClassVar[int] = 2
     ELECTRODE_CHANNELS: ClassVar[int] = 16
@@ -294,8 +293,7 @@ class GRUCTCModule(pl.LightningModule):
         num_features = self.NUM_BANDS * mlp_features[-1]
         gru_output_features = hidden_size * (2 if bidirectional else 1)
 
-        # Front-end feature extraction, same style as baseline:
-        # inputs: (T, N, bands=2, electrode_channels=16, freq)
+
         self.spectrogram_norm = SpectrogramNorm(
             channels=self.NUM_BANDS * self.ELECTRODE_CHANNELS
         )
@@ -308,8 +306,8 @@ class GRUCTCModule(pl.LightningModule):
 
         self.flatten = nn.Flatten(start_dim=2)
 
-        # GRU sequence model:
-        # after flatten: (T, N, num_features)
+
+        #after flatten: (T, N, num_features)
         self.gru = nn.GRU(
             input_size=num_features,
             hidden_size=hidden_size,
@@ -319,18 +317,15 @@ class GRUCTCModule(pl.LightningModule):
             batch_first=False,
         )
 
-        # Output layer:
-        # z_t = W_out h_t + b_out
+        
+        #z_t = W_out h_t + b_out
         self.classifier = nn.Linear(gru_output_features, charset().num_classes)
         self.log_softmax = nn.LogSoftmax(dim=-1)
 
-        # Criterion
         self.ctc_loss = nn.CTCLoss(blank=charset().null_class)
-
-        # Decoder
         self.decoder = instantiate(decoder)
 
-        # Metrics
+
         metrics = MetricCollection([CharacterErrorRates()])
         self.metrics = nn.ModuleDict(
             {
@@ -344,35 +339,32 @@ class GRUCTCModule(pl.LightningModule):
         inputs: (T, N, bands=2, electrode_channels=16, freq)
         returns: (T, N, num_classes)
         """
-        x = self.spectrogram_norm(inputs)
-        x = self.mlp(x)
-        x = self.flatten(x)          # (T, N, num_features)
+        features = self.spectrogram_norm(inputs)
+        features = self.mlp(features)
+        features = self.flatten(features)    
 
-        x, _ = self.gru(x)           # (T, N, hidden_size * num_directions)
-        x = self.classifier(x)       # (T, N, num_classes)
-        x = self.log_softmax(x)      # (T, N, num_classes)
+        gru_outputs, _ = self.gru(features)       
+        logits = self.classifier(gru_outputs)
+        
+        return self.log_softmax(logits)
 
-        return x
 
-    def _step(
-        self, phase: str, batch: dict[str, torch.Tensor], *args, **kwargs
-    ) -> torch.Tensor:
+    def _step(self, phase: str, batch: dict[str, torch.Tensor], *args, **kwargs) -> torch.Tensor:
         inputs = batch["inputs"]
         targets = batch["targets"]
         input_lengths = batch["input_lengths"]
         target_lengths = batch["target_lengths"]
-        N = len(input_lengths)  # batch_size
+        N = len(input_lengths) 
 
         emissions = self.forward(inputs)
 
-        # GRU does not change temporal length
         emission_lengths = input_lengths
 
         loss = self.ctc_loss(
-            log_probs=emissions,                  # (T, N, num_classes)
-            targets=targets.transpose(0, 1),     # (T, N) -> (N, T)
-            input_lengths=emission_lengths,      # (N,)
-            target_lengths=target_lengths,       # (N,)
+            log_probs=emissions,                  
+            targets=targets.transpose(0, 1),     
+            input_lengths=emission_lengths,      
+            target_lengths=target_lengths,       
         )
 
         predictions = self.decoder.decode_batch(
@@ -380,7 +372,7 @@ class GRUCTCModule(pl.LightningModule):
             emission_lengths=emission_lengths.detach().cpu().numpy(),
         )
 
-        # Update metrics
+
         metrics = self.metrics[f"{phase}_metrics"]
         targets = targets.detach().cpu().numpy()
         target_lengths = target_lengths.detach().cpu().numpy()
