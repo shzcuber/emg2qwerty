@@ -4,9 +4,10 @@ defaults:
   - rnn_gru_ctc
 
 module:
-  rnn_hidden_size: 512
-  rnn_num_layers: 4
-  rnn_dropout: 0.45
+  mlp_features: [384]
+  rnn_hidden_size: 512 # Increased hidden size for better sequence modeling
+  rnn_num_layers: 3 # Increased number of RNN layers for better sequence modeling
+  rnn_dropout: 0.45 # Increased dropout for better regularization
 
 optimizer:
-  lr: 0.0005
+  lr: 0.0005 # Specified learning rate for better convergence

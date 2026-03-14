@@ -318,3 +318,91 @@ class RNNEncoder(nn.Module):
         # inputs: (T, N, C)
         outputs, _ = self.rnn(inputs)
         return outputs
+
+
+class TemporalConvFrontend(nn.Module):
+    """
+    Lightweight temporal CNN frontend for inputs of shape (T, N, C).
+    Returns (T, N, conv_channels).
+    """
+
+    def __init__(
+        self,
+        input_size: int,
+        conv_channels: int = 256,
+        kernel_size: int = 5,
+        num_layers: int = 2,
+        dropout: float = 0.2,
+    ) -> None:
+        super().__init__()
+
+        assert num_layers >= 1
+        assert kernel_size % 2 == 1, "Use odd kernel size to preserve length"
+
+        layers: list[nn.Module] = []
+        in_ch = input_size
+        for _ in range(num_layers):
+            layers.extend(
+                [
+                    nn.Conv1d(
+                        in_channels=in_ch,
+                        out_channels=conv_channels,
+                        kernel_size=kernel_size,
+                        padding=kernel_size // 2,
+                    ),
+                    nn.BatchNorm1d(conv_channels),
+                    nn.ReLU(),
+                    nn.Dropout(dropout),
+                ]
+            )
+            in_ch = conv_channels
+
+        self.net = nn.Sequential(*layers)
+        self.output_size = conv_channels
+
+    def forward(self, inputs: torch.Tensor) -> torch.Tensor:
+        # inputs: (T, N, C)
+        x = inputs.permute(1, 2, 0)   # (N, C, T)
+        x = self.net(x)               # (N, conv_channels, T)
+        x = x.permute(2, 0, 1)        # (T, N, conv_channels)
+        return x
+
+
+class RNNEncoder(nn.Module):
+    """
+    Recurrent encoder for inputs of shape (T, N, C).
+    Returns (T, N, hidden_size * num_directions).
+    """
+
+    def __init__(
+        self,
+        input_size: int,
+        hidden_size: int = 512,
+        num_layers: int = 3,
+        dropout: float = 0.45,
+        bidirectional: bool = True,
+        rnn_type: str = "gru",
+    ) -> None:
+        super().__init__()
+
+        rnn_type = rnn_type.lower()
+        if rnn_type == "gru":
+            rnn_cls = nn.GRU
+        elif rnn_type == "lstm":
+            rnn_cls = nn.LSTM
+        else:
+            raise ValueError(f"Unsupported rnn_type: {rnn_type}")
+
+        self.rnn = rnn_cls(
+            input_size=input_size,
+            hidden_size=hidden_size,
+            num_layers=num_layers,
+            dropout=dropout if num_layers > 1 else 0.0,
+            bidirectional=bidirectional,
+        )
+
+        self.output_size = hidden_size * (2 if bidirectional else 1)
+
+    def forward(self, inputs: torch.Tensor) -> torch.Tensor:
+        outputs, _ = self.rnn(inputs)
+        return outputs
