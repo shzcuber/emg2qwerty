@@ -271,6 +271,8 @@ class TDSConvCTCModule(pl.LightningModule):
         )
     
 #gru module 
+#this will replace the TDSConvEncoder with a GRU layer
+#the rest of the architecture and training loop remains the same 
 class GRUCTCModule(TDSConvCTCModule):
     def __init__(
         self,
