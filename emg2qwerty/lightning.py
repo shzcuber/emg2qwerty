@@ -270,11 +270,8 @@ class TDSConvCTCModule(pl.LightningModule):
             lr_scheduler_config=self.hparams.lr_scheduler,
         )
     
-#gru modudle 
-class GRUCTCModule(pl.LightningModule):
-    NUM_BANDS: ClassVar[int] = 2
-    ELECTRODE_CHANNELS: ClassVar[int] = 16
-
+#gru module 
+class GRUCTCModule(TDSConvCTCModule):
     def __init__(
         self,
         in_features: int,
@@ -287,7 +284,16 @@ class GRUCTCModule(pl.LightningModule):
         lr_scheduler: DictConfig,
         decoder: DictConfig,
     ) -> None:
-        super().__init__()
+
+        super().__init__(
+            in_features=in_features,
+            mlp_features=mlp_features,
+            block_channels=[24],  
+            kernel_width=32,      
+            optimizer=optimizer,
+            lr_scheduler=lr_scheduler,
+            decoder=decoder,
+        )
         self.save_hyperparameters()
 
         num_features = self.NUM_BANDS * mlp_features[-1]
@@ -317,22 +323,10 @@ class GRUCTCModule(pl.LightningModule):
             batch_first=False,
         )
 
-        
         #z_t = W_out h_t + b_out
         self.classifier = nn.Linear(gru_output_features, charset().num_classes)
         self.log_softmax = nn.LogSoftmax(dim=-1)
-
-        self.ctc_loss = nn.CTCLoss(blank=charset().null_class)
-        self.decoder = instantiate(decoder)
-
-
-        metrics = MetricCollection([CharacterErrorRates()])
-        self.metrics = nn.ModuleDict(
-            {
-                f"{phase}_metrics": metrics.clone(prefix=f"{phase}/")
-                for phase in ["train", "val", "test"]
-            }
-        )
+        
 
     def forward(self, inputs: torch.Tensor) -> torch.Tensor:
         """
@@ -382,33 +376,4 @@ class GRUCTCModule(pl.LightningModule):
 
         self.log(f"{phase}/loss", loss, batch_size=N, sync_dist=True)
         return loss
-
-    def _epoch_end(self, phase: str) -> None:
-        metrics = self.metrics[f"{phase}_metrics"]
-        self.log_dict(metrics.compute(), sync_dist=True)
-        metrics.reset()
-
-    def training_step(self, *args, **kwargs) -> torch.Tensor:
-        return self._step("train", *args, **kwargs)
-
-    def validation_step(self, *args, **kwargs) -> torch.Tensor:
-        return self._step("val", *args, **kwargs)
-
-    def test_step(self, *args, **kwargs) -> torch.Tensor:
-        return self._step("test", *args, **kwargs)
-
-    def on_train_epoch_end(self) -> None:
-        self._epoch_end("train")
-
-    def on_validation_epoch_end(self) -> None:
-        self._epoch_end("val")
-
-    def on_test_epoch_end(self) -> None:
-        self._epoch_end("test")
-
-    def configure_optimizers(self) -> dict[str, Any]:
-        return utils.instantiate_optimizer_and_scheduler(
-            self.parameters(),
-            optimizer_config=self.hparams.optimizer,
-            lr_scheduler_config=self.hparams.lr_scheduler,
-            )
+        
